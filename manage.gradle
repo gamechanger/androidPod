@@ -1,0 +1,85 @@
+import java.nio.file.Files
+import java.nio.file.Paths
+
+def pods = [:]
+
+def fullPath(path) {
+    if (path.startsWith("~${File.separator}")) {
+        return Paths.get(System.getProperty("user.home") + path.substring(1))
+    }
+    return Paths.get(path)
+}
+
+def convertPodToModuleName(pod) {
+    def path = pod.value.path
+    if (path != null) {
+        def moduleFromPath = path.substring(path.lastIndexOf('/') + 1)
+        if (!moduleFromPath.empty) {
+            return moduleFromPath
+        }
+    }
+    return pod.key.replace('.', '_').replace(':', '_')
+}
+
+def configure_local_pod(pod) {
+    def sourcePathFromOptions = pod.value.path
+    def moduleName = convertPodToModuleName(pod)
+    def podPath = fullPath("${rootProject.getProjectDir()}/$moduleName")
+
+    if (!sourcePathFromOptions) {
+        Files.deleteIfExists(podPath)
+        return
+    }
+
+    def sourcePath = fullPath(sourcePathFromOptions)
+
+    if (!java.nio.file.Files.exists(sourcePath)) {
+        throw new GradleException("Pod: `$pod.key` source missing: $sourcePath")
+    }
+    if (!java.nio.file.Files.exists(podPath)) {
+        println("Need to link path")
+        Files.createSymbolicLink(podPath, sourcePath)
+    }
+
+    include ":${moduleName}"
+}
+
+/// Register new pod
+///   pod 'com.domain:test', version: '1.0.0'
+///   pod 'com.domain:local', path: '~/local_module'
+ext.pod = { options, identifier ->
+    if (pods[identifier] != null) {
+        throw new InvalidUserDataException("Pod: `$identifier` already defined")
+    }
+
+    pods[identifier] = options
+}
+
+/// Add pods dependencies to project.
+/// dependencies {
+///    podsImplementation()
+/// }
+ext.podsImplementation = {
+    pods.each { pod ->
+        def version = pod.value.version
+        if (version != null) {
+            dependencies.implementation "${pod.key}:${version}"
+        } else if (pod.value.path != null) {
+            def moduleName = convertPodToModuleName(pod)
+            dependencies.implementation dependencies.project(path: ":${moduleName}", configuration: 'default')
+        } else {
+            throw new GradleException("Pod ${pod.key} is missing version or path option")
+        }
+    }
+}
+
+/// Configure pods. Creates/Deletes symbolic links to local projects and include them.
+///  Needs to be called from settings.gradle
+ext.configure_local_pods = {
+    pods.each { pod ->
+        configure_local_pod(pod)
+    }
+}
+
+apply from: "${rootProject.getProjectDir()}/pods.gradle"
+
