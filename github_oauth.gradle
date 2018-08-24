@@ -1,0 +1,37 @@
+def valueOrElse(value, block) {
+    if (value != null) {
+        return value
+    }
+    return block()
+}
+
+ext.github_oauth = { overrides ->
+    def org = valueOrElse(overrides.org) { return System.getenv("GITHUB_OAUTH_ORG") }
+    if (org == null) {
+        throw new InvalidUserDataException("github_oauth: Missing org")
+    }
+
+    def repo = valueOrElse(overrides.repo) { return System.getenv("GITHUB_OAUTH_REPO") }
+    if (repo == null) {
+        throw new InvalidUserDataException("github_oauth: Missing repo")
+    }
+
+    def branch = valueOrElse(overrides.branch) { return "master" }
+
+    def oauth = valueOrElse(overrides.key) { return System.getenv("GITHUB_OAUTH_KEY") }
+    if (oauth == null) {
+        throw new InvalidUserDataException("github_oauth: Missing oauth key")
+    }
+
+    getRepositories().maven {
+        credentials {
+            username oauth
+            password "x-oauth-basic"
+        }
+        url "https://raw.githubusercontent.com/${org}/${repo}/${branch}"
+        authentication {
+            basic(BasicAuthentication) // enable preemptive authentication
+        }
+    }
+}
+
